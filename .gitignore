@@ -60,3 +60,7 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# 屏蔽所有目录下的 macOS 缓存文件
+.DS_Store
+**/.DS_Store
