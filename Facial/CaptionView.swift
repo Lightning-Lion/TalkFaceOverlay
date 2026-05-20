@@ -4,8 +4,21 @@ import SwiftUI
 /// 字幕视图
 /// 带有glass背景的SwiftUI文本视图
 /// 用于在人脸下巴下方显示语音识别字幕
+
+@Observable
+class CaptionViewModel {
+    var text: String
+    init(text: String) {
+        self.text = text
+    }
+}
+
 struct CaptionView: View {
-    let text: String
+    var mod:CaptionViewModel
+    
+    private var text: String {
+        mod.text
+    }
     
     var body: some View {
         Text(text)
@@ -16,8 +29,4 @@ struct CaptionView: View {
             .background(.ultraThinMaterial, in: .capsule)
             .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
     }
-}
-
-#Preview {
-    CaptionView(text: "你好世界")
 }

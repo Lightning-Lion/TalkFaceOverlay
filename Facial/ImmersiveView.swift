@@ -10,22 +10,37 @@ struct ImmersiveView: View {
     
     /// 持有root实体，在RealityView内外都能操作
     private let root = Entity()
-    /// 字幕实体
-    private let captionEntity: Entity = {
+    /// 瞬时跟踪实体
+    private let instantTrackingEntity = Entity()
+    /// 字幕实体（平滑跟踪）
+    private let captionModAndEntity: (CaptionViewModel,Entity) = {
+        let mod = CaptionViewModel(text: "等待说话中…")
         let entity = Entity()
         entity.name = "caption"
         entity.components.set(ViewAttachmentComponent(
-            rootView: CaptionView(text: "等待说话中…")
+            rootView: CaptionView(mod: mod)
         ))
         entity.components.set(BillboardComponent())
         entity.isEnabled = false
-        return entity
+        return (mod, entity)
     }()
+    private var captionMod: CaptionViewModel {
+        captionModAndEntity.0
+    }
+    private var captionEntity: Entity {
+        captionModAndEntity.1
+    }
     
     var body: some View {
         RealityView { content in
             content.add(root)
+            root.addChild(instantTrackingEntity)
             root.addChild(captionEntity)
+            
+            // 为跟随实体添加阻尼跟随组件
+            captionEntity.components[DampingFollowComponent.self] = DampingFollowComponent(
+                target: instantTrackingEntity
+            )
             
             // 启动人脸追踪和语音识别
             Task { @MainActor in
@@ -42,13 +57,14 @@ struct ImmersiveView: View {
                     showError(error.localizedDescription)
                 }
             }
+            DampingFollowSystem.registerSystem()
         }
         .onChange(of: faceTracker.facePosition) { _, newPosition in
             if let newPosition {
                 // 将字幕放在下巴下方0.15米处
                 var captionPosition = newPosition
                 captionPosition.y -= 0.15
-                captionEntity.position = captionPosition
+                instantTrackingEntity.position = captionPosition
                 captionEntity.isEnabled = true
             } else {
                 captionEntity.isEnabled = false
@@ -56,9 +72,8 @@ struct ImmersiveView: View {
         }
         .onChange(of: speechRecognizer.recognizedText) { _, newText in
             let displayText = newText ?? "等待说话中…"
-            captionEntity.components.set(ViewAttachmentComponent(
-                rootView: CaptionView(text: displayText)
-            ))
+            // 更新文本
+            captionMod.text = displayText
             // 确保有人脸位置时才显示
             if faceTracker.facePosition != nil {
                 captionEntity.isEnabled = true
@@ -77,7 +92,7 @@ struct ImmersiveView: View {
         let errorEntity = Entity()
         errorEntity.name = "error"
         errorEntity.components.set(ViewAttachmentComponent(
-            rootView: CaptionView(text: "⚠️ \(message)")
+            rootView: CaptionView(mod: CaptionViewModel(text: "⚠️ \(message)"))
         ))
         errorEntity.components.set(BillboardComponent())
         errorEntity.position = SIMD3<Float>(0, 1.5, -2)
