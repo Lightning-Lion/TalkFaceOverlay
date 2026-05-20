@@ -1,5 +1,7 @@
 # Facial
 
+## 该项目由Agent生成 [Agent轨迹](https://lightning-lion.github.io/agent-trajectory/TalkFaceOverlay/)
+
 ## 已实现的
 
 - 正确使用MainCamera识别人脸
