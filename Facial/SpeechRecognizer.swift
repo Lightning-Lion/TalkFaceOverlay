@@ -1,4 +1,3 @@
-import os
 import SwiftUI
 import AVFoundation
 import Speech
@@ -9,12 +8,42 @@ import Speech
 @MainActor
 @Observable
 class SpeechRecognizer {
-    /// 当前识别到的文字，nil表示等待说话中
-    var recognizedText: String? = nil
+    /// 语言选择，影响截断策略
+    enum Language: String, CaseIterable, Identifiable {
+        case chinese
+        case english
+        
+        var id: Self { self }
+        
+        var label: String {
+            switch self {
+            case .chinese: return "中文"
+            case .english: return "English"
+            }
+        }
+    }
     
+    /// 当前识别语言
+    var language: Language = .chinese {
+        didSet {
+            RemoteLogger.shared.log(
+                "SpeechRecognizer.language 已设为 \(language.label) (old: \(oldValue.label))",
+                category: "LangFlow")
+        }
+    }
+    
+    /// 当前识别的完整文本
+    var transcribedText = ""
+    /// 显示用的文本（按标点切分后的最后一句话，或"等待说话中…"）
+    var displayText = "等待说话中…" {
+        didSet {
+            isCurrentlySpeaking = (displayText != "等待说话中…")
+        }
+    }
+    /// 是否正在说话
+    var isCurrentlySpeaking = false
     /// 是否正在监听
     var isListening: Bool = false
-    
     /// 错误信息
     var error: String? = nil
     
@@ -48,6 +77,7 @@ class SpeechRecognizer {
         self.speechRecognizer = recognizer
         
         try startRecording()
+        displayText = "等待说话中…"
     }
     
     func stop() {
@@ -84,11 +114,8 @@ class SpeechRecognizer {
                 
                 if let result {
                     let transcribed = result.bestTranscription.formattedString
-                    if transcribed.isEmpty {
-                        self.recognizedText = nil
-                    } else {
-                        self.recognizedText = transcribed
-                    }
+                    self.transcribedText = transcribed
+                    self.processTranscription(transcribed)
                     
                     // 如果识别完成（用户停顿），重新开始新一轮识别
                     if result.isFinal {
@@ -97,7 +124,7 @@ class SpeechRecognizer {
                 }
                 
                 if let error {
-                    os_log("语音识别错误: \(error.localizedDescription)")
+                    RemoteLogger.shared.log("语音识别错误: \(error.localizedDescription)", category: "Speech")
                     // 不设置error，因为可能是正常的结束，尝试重启
                     self.restartRecording()
                 }
@@ -128,8 +155,71 @@ class SpeechRecognizer {
         do {
             try startRecording()
         } catch {
-            os_log("重启语音识别失败: \(error.localizedDescription)")
+            RemoteLogger.shared.log("重启语音识别失败: \(error.localizedDescription)", category: "Speech")
             self.isListening = false
+        }
+    }
+    
+    /// 处理识别文本：按逗号句号分句，显示最后一句话
+    private func processTranscription(_ text: String) {
+        // 用逗号、句号分割
+        let separators: [Character] = ["。", "，", ".", ",", "！", "?", "！", "？", "\n"]
+        let sentences = text.split(whereSeparator: { separators.contains($0) })
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        
+        guard let lastSentence = sentences.last?.trimmingCharacters(in: .whitespaces) else {
+            if text.trimmingCharacters(in: .whitespaces).isEmpty {
+                displayText = "等待说话中…"
+            } else {
+                // 还在说但没分句，显示完整内容
+                displayText = truncateText(text)
+            }
+            return
+        }
+        
+        displayText = truncateText(lastSentence)
+    }
+    
+    /// 按容量分页截断：容量满后清空重来，不滑动
+    private func truncateText(_ text: String) -> String {
+        RemoteLogger.shared.log(
+            "语言: \(language == .chinese ? "中文" : "English") | 输入长度: \(text.count) | 输入预览: \(String(text.prefix(30)))",
+            category: "truncateText")
+        
+        switch language {
+        case .chinese:
+            let maxChars = 20
+            let charCount = text.count
+            
+            if charCount <= maxChars {
+                RemoteLogger.shared.log("中文无需截断: \(charCount)字 ≤ \(maxChars)字", category: "truncateText")
+                return text
+            }
+            
+            // 分页：满一页后清空，从余数位置开始新页
+            let remainder = charCount % maxChars
+            let startIndex = remainder == 0 ? charCount - maxChars : charCount - remainder
+            let result = String(text[text.index(text.startIndex, offsetBy: startIndex)...])
+            RemoteLogger.shared.log("中文分页: 原文\(charCount)字 → 余数\(remainder) → 取末尾\(charCount - startIndex)字 → \(result)", category: "truncateText")
+            return result
+            
+        case .english:
+            let maxWords = 8
+            let words = text.split(separator: " ").map(String.init)
+            let wordCount = words.count
+            
+            if wordCount <= maxWords {
+                RemoteLogger.shared.log("英文无需截断: \(wordCount)词 ≤ \(maxWords)词", category: "truncateText")
+                return text
+            }
+            
+            // 分页：满一页后清空，从余数位置开始新页
+            let remainder = wordCount % maxWords
+            let startIndex = remainder == 0 ? wordCount - maxWords : wordCount - remainder
+            let result = words[startIndex...].joined(separator: " ")
+            RemoteLogger.shared.log("英文分页: 原文\(wordCount)词 → 余数\(remainder) → 取末尾\(wordCount - startIndex)词 → \(result)", category: "truncateText")
+            return result
         }
     }
     

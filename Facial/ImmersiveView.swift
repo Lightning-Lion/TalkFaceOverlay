@@ -52,6 +52,10 @@ struct ImmersiveView: View {
             }
             Task { @MainActor in
                 do {
+                    RemoteLogger.shared.log(
+                        "ImmersiveView 启动: 从 AppModel 读取 speechLanguage=\(appModel.speechLanguage.label), 即将写入 speechRecognizer",
+                        category: "LangFlow")
+                    speechRecognizer.language = appModel.speechLanguage
                     try await speechRecognizer.start()
                 } catch {
                     showError(error.localizedDescription)
@@ -70,10 +74,9 @@ struct ImmersiveView: View {
                 captionEntity.isEnabled = false
             }
         }
-        .onChange(of: speechRecognizer.recognizedText) { _, newText in
-            let displayText = newText ?? "等待说话中…"
+        .onChange(of: speechRecognizer.displayText) { _, newText in
             // 更新文本
-            captionMod.text = displayText
+            captionMod.text = newText
             // 确保有人脸位置时才显示
             if faceTracker.facePosition != nil {
                 captionEntity.isEnabled = true
@@ -84,6 +87,12 @@ struct ImmersiveView: View {
         }
         .onChange(of: speechRecognizer.error) { _, error in
             if let error { showError(error) }
+        }
+        .onChange(of: appModel.speechLanguage) { _, newLang in
+            RemoteLogger.shared.log(
+                "ImmersiveView.onChange 触发: newLang=\(newLang.label), 即将写入 speechRecognizer",
+                category: "LangFlow")
+            speechRecognizer.language = newLang
         }
     }
     

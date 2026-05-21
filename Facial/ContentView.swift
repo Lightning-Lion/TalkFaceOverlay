@@ -14,6 +14,14 @@ struct ContentView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             
+            Picker("语言", selection: Bindable(appModel).speechLanguage) {
+                ForEach(SpeechRecognizer.Language.allCases) { lang in
+                    Text(lang.label).tag(lang)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 260)
+            
             ToggleImmersiveSpaceButton()
         }
         .padding()
